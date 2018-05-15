@@ -1,0 +1,17 @@
+{
+    "name": "mssql-parser",
+    "version": "1.0.0",
+    "description": "",
+    "main": "app.js",
+    "author": "",
+    "license": "ISC",
+    "homepage": "https://github.com/maksimusyan",
+    "scripts": {
+        "test": "echo \"Run success\" && exit 1"
+    },
+    "dependencies": {
+        "fs": "0.0.1-security",
+        "pg": "7.4.3",
+        "xml2js": "0.4.19"
+    }
+  }

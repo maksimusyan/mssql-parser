@@ -69,7 +69,8 @@ fs.readFile(dbFile, { encoding: 'utf8' }, function(err, data){
 
     });
     // Готовые данные отправляем на экспорт
-    xmlToJsObject(xmls);
+    //xmlToJsObject(xmls);
+    xmlToJsObject([xmls[1]]);
 });
 
 let xmlToJsObject = function (xmls){
@@ -113,6 +114,12 @@ let xmlToJsObject = function (xmls){
                             srcAnswer = ['',''];
                         }
                         let
+                            // ???
+                            questMinimum = question[0].$.minimum,
+                            // ???
+                            questMaximum = question[0].$.maximum,
+                            // ???
+                            questIsSecret = question[0].$.isSecret,
                             // Значение выбранного ответа
                             resultAnswerValue = srcAnswer[0],
                             // ID выбранного ответа
@@ -125,12 +132,21 @@ let xmlToJsObject = function (xmls){
                             questText = question[0].$.text
                         ;
 
-
-                        console.log(resultAnswerValue);
+                        // Если варианты ответов существуют
+                        if (typeof question[0].Answers[0].Answer === 'object' && question[0].Answers[0].Answer.length > 0){
+                            for (let iAns in question[0].Answers[0].Answer) {
+                                let ansData = question[0].Answers[0].Answer[iAns],
+                                    // ???
+                                    ansValue = ansData._,
+                                    // ???
+                                    ansPosition = ansData.$.position,
+                                    // ???
+                                    ansKeyto = ansData.$.keyto
+                                ;
+                                //console.log(ansValue);
+                            }
+                        }
                     }
-
-
-
                 }
             }
 
@@ -140,7 +156,3 @@ let xmlToJsObject = function (xmls){
     }
 
 };
-
-
-
-console.log('OK');

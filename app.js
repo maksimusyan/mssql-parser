@@ -3,47 +3,84 @@
 
 // Устанавливаем константы
 const
-    dbFile = 'db/test.sql', // дамп-файл с данными из MS SQL
+    dbFile = 'db/mssql.sql', // дамп-файл с данными из MS SQL
     fs = require('fs'), // модуль работы с файловой системой
     pg = require('pg'), // модуль работы с PostgreSQL
+    v8 = require('v8'), // модуль движка V8
     xml2js = require('xml2js').parseString // модуль преобразования XML в объект JS
 ;
 
+// Устанавливаем максимально допустимое использование памяти в мегабайтах
+v8.setFlagsFromString('--max_old_space_size=4096');
+
 let 
-    // Строка из файл для парсинга с убранными переносами строки
-    clearStr,
-    // Загружаем файл для парсинга
-    file = fs.readFileSync(dbFile, 'utf8'),
-    // Строка, относящаяся к таблице TestAnswers
-    match,
-    // Регулярка для поиска строк TestAnswers
-    pattern = /(INSERT \[dbo\]\.\[TestAnswers\].*?<\/Test>)/gi,
+    // Текущий индекс в массиве xml-тестов
+    currentTestId = 0,
+    // Маркер начала склеивания xml-строк
+    joinStarted = false,
+    // Регулярка для поиска INSERT для TestAnswers
+    patternSearch = /INSERT \[dbo\]\.\[TestAnswers\]/,
+    // Регулярка для поиска начала xml-строк
+    patternStart = /<Test xmlns/,
+    // Регулярка для поиска окончания xml-строк
+    patternEnd = /<\/Test>/,
+    // Маркер начала поиска xml-строк, в случае, если встретился INSERT для TestAnswers
+    searchActive = false,
     // Все найденные xml-тесты
     xmls = []
 ;
 
-// Очищаем строку от \n
-clearStr = file.replace(/\n/g,' ');
+// Читаем дамп-файл асинхронно
+fs.readFile(dbFile, { encoding: 'utf8' }, function(err, data){
+    if (err) throw err; // Выкидываем исключение в случае ошибки
+    // Прочитанный файл разбиваем на строки и прогоняем в цикле каждую строку
+    data.split('\n').forEach(function(line){
+        if (searchActive === false){
+            // Если нужный INSERT ещё не найден, то находим и включаем поиск xml-структуры
+            if (patternSearch.exec(line) !== null){
+                searchActive = true;
+            }
+        } else {
+            // Если склеивание xml-строк не началось, то ищем начало xml-структуры
+            if (joinStarted === false) {
+                if (patternStart.exec(line) !== null) {
+                    joinStarted = true;
+                    // Добавляем первую строку в текущий индекс массива xml-тестов
+                    xmls[currentTestId] = line;
+                }
+            } else { // Склеивание xml-строк началось
+                // Если найден конец xml-структуры
+                if (patternEnd.exec(line) !== null) {
+                    // Дописываем последнюю строку в xml-структуру
+                    xmls[currentTestId] += '</Test>';
+                    // Прерываем склеивание строк
+                    joinStarted = false;
+                    // Прерываем поиск xml, чтобы искать следующий INSERT
+                    searchActive = false;
+                    // Автоикремент текущего индекса массива xml-тестов
+                    currentTestId++;
+                } else {
+                    // Добавляем текущую строку в текущий индекс массива xml-тестов
+                    xmls[currentTestId] += line;
+                }
+            }
 
-// Ищем все INSERT для TestAnswers
-while (match = pattern.exec(clearStr)) {
+        }
 
-    // Внутри INSERT ищем xml-структуру
-    let subMatch = /(<Test.*?<\/Test>)/gi,
-        xml = match[0].match(subMatch);
+    });
+    // Готовые данные отправляем на экспорт
+    xmlToJsObject(xmls);
+});
 
-    // Добавляем xml-структуру в общий массив xml-тестов
-    xmls.push(xml[0]);
-}
-
-// Если массив xml-тестов не пустой
-if(xmls.length > 0){
+let xmlToJsObject = function (xmls){
+    // Если массив xml-тестов пустой
+    if (xmls.length === 0) return false;
     // Проходим в цикле каждый Тест
-    for(let index in xmls){
+    for (let index in xmls) {
         // Преобразуем xml-строку в объект JS
         xml2js(xmls[index], function (err, result) {
             // Атрибуты корневого элемента доступны через ключ $
-            let 
+            let
                 // ID в базе данных при сохранении Теста
                 testID,
                 // Название Теста
@@ -53,23 +90,29 @@ if(xmls.length > 0){
                 // Какой-то username Теста
                 testUsername = result.Test.$.username
             ;
-            
+
             // TODO: Тут сделать подключение к базе и сделать INSERT для Теста
             // testID = 1;
 
             // Если массив вопросов существует и он не пустой
-            if(typeof result.Test.Questions !== 'undefined' && result.Test.Questions.length > 0){
+            if (typeof result.Test.Questions !== 'undefined' && result.Test.Questions.length > 0) {
                 // Проходим в цикле каждый Вопрос
-                for(let iQ in result.Test.Questions){
+                for (let iQ in result.Test.Questions) {
                     // question - это массив с одгним элементом, где:
                     // question[0].$ - объект корневых атрибутов (значения, выбранные пользователем)
                     // question[0].Answers - массив доступных вопросов
                     let question = result.Test.Questions[iQ].Question;
 
                     // Предполагаю, что каких-то данных не существует. Проверяем:
-                    if (typeof question[0] === 'object' && typeof question[0].Answers === 'object'){
+                    if (typeof question[0] === 'object' && typeof question[0].Answers === 'object') {
+                        // Если ответа нет или он пустой, то присваиваем пустую строку
+                        let srcAnswer;
+                        if (typeof question[0].$.answer !== 'undefined' && question[0].$.answer !== ''){
+                            srcAnswer = question[0].$.answer.split('@#@');
+                        } else {
+                            srcAnswer = ['',''];
+                        }
                         let
-                            srcAnswer = question[0].$.answer.split('@#@'),
                             // Значение выбранного ответа
                             resultAnswerValue = srcAnswer[0],
                             // ID выбранного ответа
@@ -83,7 +126,7 @@ if(xmls.length > 0){
                         ;
 
 
-                        //console.log(resultAnswerValue);
+                        console.log(resultAnswerValue);
                     }
 
 
@@ -92,9 +135,12 @@ if(xmls.length > 0){
             }
 
 
-            
+
         });
     }
-}
+
+};
+
+
 
 console.log('OK');

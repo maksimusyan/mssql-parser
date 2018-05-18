@@ -13,10 +13,34 @@ const
 // Устанавливаем максимально допустимое использование памяти в мегабайтах
 v8.setFlagsFromString('--max_old_space_size=4096');
 
+
+
+
+
+
+
+
+
+/**
+    1. По кодовому слову определяешь id сценария
+    Цикл 1, создание сессий
+    1.5. В researches_sessions вставляешь новую строку, получаешь id сессии
+    Цикл 2, перебор вопросов анкеты
+    2. По тексту вопроса определяешь id вопроса
+    3. Выбираешь варианты ответов на вопрос, если они есть, по id вопроса
+    4. По атрибуту answer определяешь текст и позицию варианта ответа, а по ним id варианта в новой базе
+    5. Делаешь вставку в researches_data данных ответа на текущий вопрос
+    Конец цикла 2
+    6. Обновляешь запись о сессии, добавляя время окончания
+    Конец цикла 1
+*/
+
+let code = 'moex2016';
+
 // TODO: ДЕМО-подключение
 let dbQuery = `
     SELECT 
-        sq.scenario_id, s.name 
+        sq.scenario_id, s.name
     FROM 
         scenarios_questions sq 
     LEFT JOIN 
@@ -24,14 +48,30 @@ let dbQuery = `
     WHERE sq.text LIKE 'Я считаю справедливым%';
 `;
 
-db.execute(dbQuery)
-    .then(result => {
-        console.log(result.rows[0].scenario_id);
-        console.log(result.rows[0]);
-        return db.pool.end();
-    })
-    .catch(e => setImmediate(() => { throw e }));
+let parser = function(dbClient){
+    // Выполняем SQL-запрос
+    dbClient.query(dbQuery)
+        .then(res => {
+            // Освобождаем пул соединений от нашего клиента
+            dbClient.release();
 
+            console.log(res.rows[0]);
+        })
+        .catch(err => {
+            dbClient.release();
+            console.log(err.message);
+        })
+}
+
+// Подключаемся к пулу клиентов PG
+db.pool.connect()
+    // Если подключение прошло успешно, то пул вернёт нам Клиента
+    .then(client => {
+        // Запускаем парсер и передаём ему Клиента базы
+        parser(client);
+    }).catch(() => {
+        console.log('Error connect');
+    });
 
 
 let 

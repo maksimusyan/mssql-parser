@@ -26,6 +26,7 @@ let dbQuery = `
 
 db.execute(dbQuery)
     .then(result => {
+        console.log(result.rows[0].scenario_id);
         console.log(result.rows[0]);
         return db.pool.end();
     })

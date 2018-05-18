@@ -21,7 +21,7 @@ let dbQuery = `
         scenarios_questions sq 
     LEFT JOIN 
         scenarios s ON s.id=sq.scenario_id 
-    WHERE sq.text like 'Я считаю справедливым%';
+    WHERE sq.text LIKE 'Я считаю справедливым%';
 `;
 
 db.execute(dbQuery)

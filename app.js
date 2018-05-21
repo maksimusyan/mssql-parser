@@ -14,66 +14,6 @@ const
 v8.setFlagsFromString('--max_old_space_size=4096');
 
 
-
-
-
-
-
-
-
-/**
-    1. По кодовому слову определяешь id сценария
-    Цикл 1, создание сессий
-    1.5. В researches_sessions вставляешь новую строку, получаешь id сессии
-    Цикл 2, перебор вопросов анкеты
-    2. По тексту вопроса определяешь id вопроса
-    3. Выбираешь варианты ответов на вопрос, если они есть, по id вопроса
-    4. По атрибуту answer определяешь текст и позицию варианта ответа, а по ним id варианта в новой базе
-    5. Делаешь вставку в researches_data данных ответа на текущий вопрос
-    Конец цикла 2
-    6. Обновляешь запись о сессии, добавляя время окончания
-    Конец цикла 1
-*/
-
-let code = 'moex2016';
-
-// TODO: ДЕМО-подключение
-let dbQuery = `
-    SELECT 
-        sq.scenario_id, s.name
-    FROM 
-        scenarios_questions sq 
-    LEFT JOIN 
-        scenarios s ON s.id=sq.scenario_id 
-    WHERE sq.text LIKE 'Я считаю справедливым%';
-`;
-
-let parser = function(dbClient){
-    // Выполняем SQL-запрос
-    dbClient.query(dbQuery)
-        .then(res => {
-            // Освобождаем пул соединений от нашего клиента
-            dbClient.release();
-
-            console.log(res.rows[0]);
-        })
-        .catch(err => {
-            dbClient.release();
-            console.log(err.message);
-        })
-}
-
-// Подключаемся к пулу клиентов PG
-db.pool.connect()
-    // Если подключение прошло успешно, то пул вернёт нам Клиента
-    .then(client => {
-        // Запускаем парсер и передаём ему Клиента базы
-        parser(client);
-    }).catch(() => {
-        console.log('Error connect');
-    });
-
-
 let 
     // Текущий индекс в массиве xml-тестов
     currentTestId = 0,
@@ -89,6 +29,8 @@ let
     searchActive = false,
     // Все найденные xml-тесты
     xmls = [],
+    // Клиент подключения к базе
+    dbClient = null,
     // Функция разбора дамп-файла на строки и парсинга данных
     parseFile = function(){
         // Читаем дамп-файл асинхронно
@@ -131,7 +73,7 @@ let
             });
             // Готовые данные отправляем на экспорт
             //xmlToJsObject(xmls);
-            xmlToJsObject([xmls[1]]);
+            xmlToJsObject([xmls[0]]);
         });
     },
     xmlToJsObject = function (xmls){
@@ -143,18 +85,67 @@ let
             xml2js(xmls[index], function (err, result) {
                 // Атрибуты корневого элемента доступны через ключ $
                 let
-                    // ID в базе данных при сохранении Теста
-                    testID,
-                    // Название Теста
+                    // ID Исследования в базе
+                    researchID,
+                    // ID организации, которой принадлежит исследование
+                    organisationID,
+                    // ID сценария для выбранного исследования
+                    scenarioID,
+                    // Название Исследования
                     testName = result.Test.$.name,
-                    // Код Теста
+                    // Код Исследования
                     testCode = result.Test.$.code,
-                    // Какой-то username Теста
-                    testUsername = result.Test.$.username
+                    // Какой-то username Исследования
+                    testUsername = result.Test.$.username,
+                    // Запрос на получение ID исследования и ID сценария
+                    getResearchIdQuery = `
+                        SELECT 
+                            r.id, r.organisation_id, rs.scenario_id
+                        FROM 
+                            researches r 
+                        LEFT JOIN 
+                            researches_scenarios rs ON r.id=rs.research_id 
+                        WHERE r.password='${testCode}';
+                    `
+                    //getResearchIdQuery = `
+                        //SELECT 
+                            //sq.scenario_id, s.name
+                        //FROM 
+                            //scenarios_questions sq 
+                        //LEFT JOIN 
+                            //scenarios s ON s.id=sq.scenario_id 
+                        //WHERE sq.text LIKE 'Я считаю справедливым%';
+                    //`
                 ;
+                /**
+                    1. По кодовому слову определяешь id сценария
+                    Цикл 1, создание сессий
+                    1.5. В researches_sessions вставляешь новую строку, получаешь id сессии
+                    Цикл 2, перебор вопросов анкеты
+                    2. По тексту вопроса определяешь id вопроса
+                    3. Выбираешь варианты ответов на вопрос, если они есть, по id вопроса
+                    4. По атрибуту answer определяешь текст и позицию варианта ответа, а по ним id варианта в новой базе
+                    5. Делаешь вставку в researches_data данных ответа на текущий вопрос
+                    Конец цикла 2
+                    6. Обновляешь запись о сессии, добавляя время окончания
+                    Конец цикла 1
+                */
 
-                // TODO: Тут сделать подключение к базе и сделать INSERT для Теста
-                // testID = 1;
+                // Ищем в базе ID исследования по кодовому слову
+                dbClient.query(getResearchIdQuery)
+                    .then(res => {
+                        if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number'){
+                            researchID = res.rows[0].id;
+                            organisationID = res.rows[0].organisation_id;
+                            scenarioID = res.rows[0].scenario_id;
+                            //console.log(res.rows[0]);
+                        }
+                    })
+                    .catch(err => {
+                        // Освобождаем пул соединений от нашего клиента
+                        dbClient.release();
+                        console.log(err.message);
+                    })
 
                 // Если массив вопросов существует и он не пустой
                 if (typeof result.Test.Questions !== 'undefined' && result.Test.Questions.length > 0) {
@@ -215,5 +206,14 @@ let
     }
 ;
 
-// Запускаем парсинг
-//parseFile();
+// Подключаемся к пулу клиентов PG
+db.pool.connect()
+    // Если подключение прошло успешно, то пул вернёт нам Клиента
+    .then(client => {
+        // Передаём клиента базы в глобальную переменную
+        dbClient = client;
+        // Запускаем парсер
+        parseFile();
+    }).catch(() => {
+        console.log('Error connect');
+    });

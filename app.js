@@ -149,10 +149,10 @@ let
                                         if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
                                             // Параметры текущего исследования
                                             let researchKeys = {
-                                                researchID: researchID,
-                                                organisationID: organisationID,
-                                                scenarioID: scenarioID,
-                                                sessionID: res.rows[0].id
+                                                research_id: researchID,
+                                                organisation_id: organisationID,
+                                                scenario_id: scenarioID,
+                                                session_id: res.rows[0].id
                                             };
                                             // Вызываем функцию обработки вопросов
                                             setQuestionsData(result.Test.Questions, researchKeys);
@@ -216,6 +216,24 @@ let
                     // Текст вопроса, подготовленный для поиска в базе
                     questTextModify = questText.replace(/<br\/>/g, '\\n').replace(/&lt;br\/&gt;/g, '\\n')
                 ;
+                // Ищем вопрос в базе по тексту
+                dbClient.query(`
+                        SELECT * 
+                        FROM scenarios_questions 
+                        WHERE scenario_id='${researchKeys.scenario_id}' AND text='${questTextModify}'
+                    `)
+                    .then(res => {
+                        // Если вопрос найден
+                        if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                            // В массив данных текущего исследования добавляем ID вопроса из базы
+                            researchKeys.question_id = res.rows[0].id;
+                        }
+                    })
+                    .catch (err => {
+                        // Освобождаем пул соединений от нашего клиента
+                        dbClient.release();
+                        console.log(err.message);
+                    })
 
                 // Если варианты ответов существуют
                 if (typeof question[0].Answers[0].Answer === 'object' && question[0].Answers[0].Answer.length > 0) {

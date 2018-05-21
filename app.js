@@ -107,101 +107,122 @@ let
                             researches_scenarios rs ON r.id=rs.research_id 
                         WHERE r.password='${testCode}';
                     `
-                    //getResearchIdQuery = `
-                        //SELECT 
-                            //sq.scenario_id, s.name
-                        //FROM 
-                            //scenarios_questions sq 
-                        //LEFT JOIN 
-                            //scenarios s ON s.id=sq.scenario_id 
-                        //WHERE sq.text LIKE 'Я считаю справедливым%';
-                    //`
                 ;
-                /**
-                    1. По кодовому слову определяешь id сценария
-                    Цикл 1, создание сессий
-                    1.5. В researches_sessions вставляешь новую строку, получаешь id сессии
-                    Цикл 2, перебор вопросов анкеты
-                    2. По тексту вопроса определяешь id вопроса
-                    3. Выбираешь варианты ответов на вопрос, если они есть, по id вопроса
-                    4. По атрибуту answer определяешь текст и позицию варианта ответа, а по ним id варианта в новой базе
-                    5. Делаешь вставку в researches_data данных ответа на текущий вопрос
-                    Конец цикла 2
-                    6. Обновляешь запись о сессии, добавляя время окончания
-                    Конец цикла 1
-                */
-
-                // Ищем в базе ID исследования по кодовому слову
-                dbClient.query(getResearchIdQuery)
-                    .then(res => {
-                        if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number'){
-                            researchID = res.rows[0].id;
-                            organisationID = res.rows[0].organisation_id;
-                            scenarioID = res.rows[0].scenario_id;
-                            //console.log(res.rows[0]);
-                        }
-                    })
-                    .catch(err => {
-                        // Освобождаем пул соединений от нашего клиента
-                        dbClient.release();
-                        console.log(err.message);
-                    })
 
                 // Если массив вопросов существует и он не пустой
                 if (typeof result.Test.Questions !== 'undefined' && result.Test.Questions.length > 0) {
-                    // Проходим в цикле каждый Вопрос
-                    for (let iQ in result.Test.Questions) {
-                        // question - это массив с одгним элементом, где:
-                        // question[0].$ - объект корневых атрибутов (значения, выбранные пользователем)
-                        // question[0].Answers - массив доступных вопросов
-                        let question = result.Test.Questions[iQ].Question;
+                    // Ищем в базе ID исследования по кодовому слову
+                    dbClient.query(getResearchIdQuery)
+                        .then(res => {
+                            // Если исследование найдено
+                            if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number') {
+                                researchID = res.rows[0].id;
+                                organisationID = res.rows[0].organisation_id;
+                                scenarioID = res.rows[0].scenario_id;
+                                // Создаём сессию
+                                dbClient.query(`
+                                        INSERT INTO researches_sessions (
+                                            research_id,
+                                            scenario_id,
+                                            user_id,
+                                            date_start,
+                                            date_finish,
+                                            password,
+                                            matrix_id,
+                                            code_word
+                                        ) 
+                                        VALUES ($1, $2, $3, $4, $5, researches_sessions_generate_id(), $6, $7)
+                                        RETURNING *;`,
+                                        [
+                                            researchID,
+                                            scenarioID,
+                                            null,
+                                            new Date(),
+                                            null,
+                                            null,
+                                            null,
 
-                        // Предполагаю, что каких-то данных не существует. Проверяем:
-                        if (typeof question[0] === 'object' && typeof question[0].Answers === 'object') {
-                            // Если ответа нет или он пустой, то присваиваем пустую строку
-                            let srcAnswer;
-                            if (typeof question[0].$.answer !== 'undefined' && question[0].$.answer !== ''){
-                                srcAnswer = question[0].$.answer.split('@#@');
-                            } else {
-                                srcAnswer = ['',''];
-                            }
-                            let
-                                // ???
-                                questMinimum = question[0].$.minimum,
-                                // ???
-                                questMaximum = question[0].$.maximum,
-                                // ???
-                                questIsSecret = question[0].$.isSecret,
-                                // Значение выбранного ответа
-                                resultAnswerValue = srcAnswer[0],
-                                // ID выбранного ответа
-                                resultAnswerId = srcAnswer[1],
-                                // Тип вопроса
-                                questType = question[0].$.type,
-                                // Позиция вопроса
-                                questPosition = question[0].$.position,
-                                // Текст вопроса
-                                questText = question[0].$.text
-                            ;
+                                        ]
+                                    )
+                                    .then(res => {
+                                        // Если сессия создана
+                                        if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
 
-                            // Если варианты ответов существуют
-                            if (typeof question[0].Answers[0].Answer === 'object' && question[0].Answers[0].Answer.length > 0){
-                                for (let iAns in question[0].Answers[0].Answer) {
-                                    let ansData = question[0].Answers[0].Answer[iAns],
-                                        // ???
-                                        ansValue = ansData._,
-                                        // ???
-                                        ansPosition = ansData.$.position,
-                                        // ???
-                                        ansKeyto = ansData.$.keyto
-                                    ;
-                                    console.log(ansValue);
-                                }
+                                            console.log(res.rows[0].id);
+                                        }
+                                    })
+                                    .catch(err => {
+                                        // Освобождаем пул соединений от нашего клиента
+                                        dbClient.release();
+                                        console.log(err.message);
+                                    })
+
+                                //console.log(res.rows[0]);
                             }
-                        }
-                    }
+                        })
+                        .catch(err => {
+                            // Освобождаем пул соединений от нашего клиента
+                            dbClient.release();
+                            console.log(err.message);
+                        })
                 }
             });
+        }
+    },
+    setQuestionsData = function (questions){
+        if (typeof questions !== 'object' || questions.length === 0){
+            return false;
+        }
+        // Проходим в цикле каждый Вопрос
+        for (let iQ in result.Test.Questions) {
+            // question - это массив с одгним элементом, где:
+            // question[0].$ - объект корневых атрибутов (значения, выбранные пользователем)
+            // question[0].Answers - массив доступных вопросов
+            let question = questions[iQ].Question;
+
+            // Предполагаю, что каких-то данных не существует. Проверяем:
+            if (typeof question[0] === 'object' && typeof question[0].Answers === 'object') {
+                // Если ответа нет или он пустой, то присваиваем пустую строку
+                let srcAnswer;
+                if (typeof question[0].$.answer !== 'undefined' && question[0].$.answer !== '') {
+                    srcAnswer = question[0].$.answer.split('@#@');
+                } else {
+                    srcAnswer = ['', ''];
+                }
+                let
+                    // ???
+                    questMinimum = question[0].$.minimum,
+                    // ???
+                    questMaximum = question[0].$.maximum,
+                    // ???
+                    questIsSecret = question[0].$.isSecret,
+                    // Значение выбранного ответа
+                    resultAnswerValue = srcAnswer[0],
+                    // ID выбранного ответа
+                    resultAnswerId = srcAnswer[1],
+                    // Тип вопроса
+                    questType = question[0].$.type,
+                    // Позиция вопроса
+                    questPosition = question[0].$.position,
+                    // Текст вопроса
+                    questText = question[0].$.text
+                    ;
+
+                // Если варианты ответов существуют
+                if (typeof question[0].Answers[0].Answer === 'object' && question[0].Answers[0].Answer.length > 0) {
+                    for (let iAns in question[0].Answers[0].Answer) {
+                        let ansData = question[0].Answers[0].Answer[iAns],
+                            // ???
+                            ansValue = ansData._,
+                            // ???
+                            ansPosition = ansData.$.position,
+                            // ???
+                            ansKeyto = ansData.$.keyto
+                            ;
+                        console.log(ansValue);
+                    }
+                }
+            }
         }
     }
 ;

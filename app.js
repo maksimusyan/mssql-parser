@@ -74,6 +74,7 @@ let
             // Готовые данные отправляем на экспорт
             //xmlToJsObject(xmls);
             xmlToJsObject([xmls[0]]);
+            //console.log(xmls.length);
         });
     },
     xmlToJsObject = function (xmls){
@@ -85,12 +86,6 @@ let
             xml2js(xmls[index], function (err, result) {
                 // Атрибуты корневого элемента доступны через ключ $
                 let
-                    // ID Исследования в базе
-                    researchID,
-                    // ID организации, которой принадлежит исследование
-                    organisationID,
-                    // ID сценария для выбранного исследования
-                    scenarioID,
                     // Название Исследования
                     testName = result.Test.$.name,
                     // Код Исследования
@@ -116,9 +111,14 @@ let
                         .then(res => {
                             // Если исследование найдено
                             if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number') {
-                                researchID = res.rows[0].id;
-                                organisationID = res.rows[0].organisation_id;
-                                scenarioID = res.rows[0].scenario_id;
+                                let 
+                                    // ID Исследования в базе
+                                    researchID = res.rows[0].id,
+                                    // ID организации, которой принадлежит исследование
+                                    organisationID = res.rows[0].organisation_id,
+                                    // ID сценария для выбранного исследования
+                                    scenarioID = res.rows[0].scenario_id
+                                ;
                                 // Создаём сессию
                                 dbClient.query(`
                                         INSERT INTO researches_sessions (
@@ -147,8 +147,15 @@ let
                                     .then(res => {
                                         // Если сессия создана
                                         if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-
-                                            console.log(res.rows[0].id);
+                                            // Параметры текущего исследования
+                                            let researchKeys = {
+                                                researchID: researchID,
+                                                organisationID: organisationID,
+                                                scenarioID: scenarioID,
+                                                sessionID: res.rows[0].id
+                                            };
+                                            // Вызываем функцию обработки вопросов
+                                            setQuestionsData(result.Test.Questions, researchKeys);
                                         }
                                     })
                                     .catch(err => {
@@ -169,12 +176,12 @@ let
             });
         }
     },
-    setQuestionsData = function (questions){
+    setQuestionsData = function (questions, researchKeys){
         if (typeof questions !== 'object' || questions.length === 0){
             return false;
         }
         // Проходим в цикле каждый Вопрос
-        for (let iQ in result.Test.Questions) {
+        for (let iQ in questions) {
             // question - это массив с одгним элементом, где:
             // question[0].$ - объект корневых атрибутов (значения, выбранные пользователем)
             // question[0].Answers - массив доступных вопросов
@@ -191,11 +198,11 @@ let
                 }
                 let
                     // ???
-                    questMinimum = question[0].$.minimum,
+                    questMinimum = typeof question[0].$.minimum !== 'undefined' ? question[0].$.minimum : null,
                     // ???
-                    questMaximum = question[0].$.maximum,
+                    questMaximum = typeof question[0].$.maximum !== 'undefined' ? question[0].$.maximum : null,
                     // ???
-                    questIsSecret = question[0].$.isSecret,
+                    questIsSecret = typeof question[0].$.isSecret !== 'undefined' ? question[0].$.isSecret : null,
                     // Значение выбранного ответа
                     resultAnswerValue = srcAnswer[0],
                     // ID выбранного ответа
@@ -203,10 +210,12 @@ let
                     // Тип вопроса
                     questType = question[0].$.type,
                     // Позиция вопроса
-                    questPosition = question[0].$.position,
+                    questPosition = typeof question[0].$.position !== 'undefined' ? question[0].$.position : 0,
                     // Текст вопроса
-                    questText = question[0].$.text
-                    ;
+                    questText = question[0].$.text,
+                    // Текст вопроса, подготовленный для поиска в базе
+                    questTextModify = questText.replace(/<br\/>/g, '\\n').replace(/&lt;br\/&gt;/g, '\\n')
+                ;
 
                 // Если варианты ответов существуют
                 if (typeof question[0].Answers[0].Answer === 'object' && question[0].Answers[0].Answer.length > 0) {

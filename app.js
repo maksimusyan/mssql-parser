@@ -81,7 +81,9 @@ let
             });
 
             // Тестируем на небольшом кол-ве данных
-            let testCount = 3, testXmls = [];
+            let 
+                testCount = 20, // Кол-во тестируемых анкет
+                testXmls = []; // Массив тестовых анкет
             for (let i = 0; i <= testCount; i++){
                 if (typeof xmls[i] !== 'undefined'){
                     testXmls.push(xmls[i]);
@@ -207,8 +209,6 @@ let
                             }
                         })
                         .catch(err => {
-                            // Освобождаем пул соединений от нашего клиента
-                            dbClient.release();
                             console.log(err.message);
                         })
                 }
@@ -405,6 +405,7 @@ let
                 console.log('=========  RESULT  ========');
                 console.log('ALL_success: ' + allQuerySuccess);
                 console.log('ALL_error: ' + allQueryErrors);
+                // Освобождаем пул соединений от нашего клиента
                 dbClient.release();
             }
         })
@@ -415,6 +416,7 @@ let
                 console.log('=========  RESULT  ========');
                 console.log('ALL_success: ' + allQuerySuccess);
                 console.log('ALL_error: ' + allQueryErrors);
+                // Освобождаем пул соединений от нашего клиента
                 dbClient.release();
             }
         })

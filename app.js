@@ -31,6 +31,8 @@ let
     xmls = [],
     // Клиент подключения к базе
     dbClient = null,
+    // Массив секретных вопросов, на которые ответил пользователь
+    secretQuestions = {},
     // Функция разбора дамп-файла на строки и парсинга данных
     parseFile = function(){
         // Читаем дамп-файл асинхронно
@@ -117,9 +119,12 @@ let
                                     // ID организации, которой принадлежит исследование
                                     organisationID = res.rows[0].organisation_id,
                                     // ID сценария для выбранного исследования
-                                    scenarioID = res.rows[0].scenario_id
+                                    scenarioID = res.rows[0].scenario_id,
+                                    // Время старта сессии
+                                    sessionStartDate = new Date()
                                 ;
                                 // Создаём сессию
+
                                 dbClient.query(`
                                         INSERT INTO researches_sessions (
                                             research_id,
@@ -137,7 +142,7 @@ let
                                             researchID,
                                             scenarioID,
                                             null,
-                                            new Date(),
+                                            sessionStartDate,
                                             null,
                                             null,
                                             null,
@@ -152,8 +157,11 @@ let
                                                 research_id: researchID,
                                                 organisation_id: organisationID,
                                                 scenario_id: scenarioID,
-                                                session_id: res.rows[0].id
+                                                session_id: res.rows[0].id,
+                                                session_date: sessionStartDate
                                             };
+                                            // Создаём ключ текущей сессии для массива секретных вопросов
+                                            secretQuestions[res.rows[0].id] = {};
                                             // Вызываем функцию обработки вопросов
                                             setQuestionsData(result.Test.Questions[0].Question, researchKeys);
                                         }
@@ -163,8 +171,6 @@ let
                                         dbClient.release();
                                         console.log(err.message);
                                     })
-
-                                //console.log(res.rows[0]);
                             }
                         })
                         .catch(err => {
@@ -194,12 +200,19 @@ let
 
             // Предполагаю, что каких-то данных не существует. Проверяем:
             if (typeof question === 'object') {
-                // Если ответа нет или он пустой, то присваиваем пустую строку
-                let srcAnswer;
-                if (typeof question.$.answer !== 'undefined' && question.$.answer !== '') {
-                    srcAnswer = question.$.answer.split('@#@');
+                // Массив с ответами пользователя
+                let resultAnswers = [];
+                // Если ответ существует
+                if (typeof question.$.answer !== 'undefined') {
+                    // Разбиваем строку ответа на разделители множественного ответа (типа SOFT)
+                    let srcAnswer = question.$.answer.split('@%@');
+                    for (let iSa in srcAnswer){
+                        // Отделяем текст ответа от позиции
+                        let ansText = srcAnswer[iSa].split('@#@');
+                        resultAnswers.push(ansText[0]);
+                    }
                 } else {
-                    srcAnswer = ['', ''];
+                    resultAnswers[0] = '';
                 }
                 let
                     // ???
@@ -207,23 +220,21 @@ let
                     // ???
                     questMaximum = typeof question.$.maximum !== 'undefined' ? question.$.maximum : null,
                     // ???
-                    questIsSecret = typeof question.$.isSecret !== 'undefined' ? question.$.isSecret : null,
-                    // Значение выбранного ответа
-                    resultAnswerValue = srcAnswer[0],
-                    // ID выбранного ответа
-                    resultAnswerId = srcAnswer[1],
+                    questIsSecret = typeof question.$.isSecret !== 'undefined' && question.$.isSecret === 'true' ? true : false,
                     // Тип вопроса
                     questType = question.$.type,
                     // Позиция вопроса
-                    questPosition = typeof question.$.position !== 'undefined' ? question.$.position : 0,
+                    questPosition = typeof question.$.position !== 'undefined' ? question.$.position : '0',
                     // Текст вопроса
                     questText = question.$.text,
                     // Текст вопроса, подготовленный для поиска в базе
                     questTextModify = questText.replace(/<br\/>/g, '\\n').replace(/&lt;br\/&gt;/g, '\\n')
                 ;
-                if (counter === 0){
-                // Ищем вопрос и варианты ответов в базе по тексту вопроса
-                dbClient.query(`
+
+                // Если вопрос не секретный или открыт конкретный секретный вопрос
+                if (questIsSecret === false || secretQuestions[researchKeys.session_id][questPosition] === questPosition){
+                    // Ищем вопрос и варианты ответов в базе по тексту вопроса
+                    dbClient.query(`
                         SELECT 
                             sq.id, sqa.id as answer_id, sqa.text as answer_text, sqa.value as answer_value
                         FROM 
@@ -238,30 +249,81 @@ let
                     .then(res => {
                         // Если вопрос найден
                         if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-                            
-
-
-                            successInsert++;
-
-                            if (counter === questions.length - 1){
-                                console.log('Success: '+successInsert);
-                                console.log('Error: '+errorInsert);
+                            let 
+                                questionID = res.rows[0].id, // ID вопроса
+                                answerResultValue = '', // Итоговые значения ответов пользователя (через запятую)
+                                answerResultIds = ''; // Итоговые ID ответов пользователя (через запятую)
+                            // Ищем в ответах из базы тот, который выбрал пользователь
+                            for (let iAns in res.rows){
+                                let curDbAnswer = res.rows[iAns];
+                                for (let irA in resultAnswers){
+                                    // Если текст ответа пользователя совпадает с текстом ответа в базе
+                                    if (resultAnswers[irA] === curDbAnswer.answer_text){
+                                        if (answerResultValue === ''){
+                                            answerResultValue = curDbAnswer.answer_value;
+                                        } else {
+                                            answerResultValue += ','+curDbAnswer.answer_value;
+                                        }
+                                        if (answerResultIds === ''){
+                                            answerResultIds = curDbAnswer.answer_id;
+                                        } else {
+                                            answerResultIds += ',' + curDbAnswer.answer_id;
+                                        }
+                                    }
+                                }
                             }
-
+                            if (answerResultIds === '') {
+                                answerResultIds = null;
+                            }
+                            // Сохраняем ответ пользователя
+                            dbClient.query(`
+                                    INSERT INTO researches_data (
+                                        session_id,
+                                        question_id,
+                                        answer,
+                                        answers_ids,
+                                        date_create
+                                    ) 
+                                    VALUES ($1, $2, $3, $4, $5)
+                                    RETURNING *;`,
+                                [
+                                    researchKeys.session_id,
+                                    questionID,
+                                    answerResultValue,
+                                    answerResultIds,
+                                    researchKeys.session_date
+                                ]
+                            )
+                            .then(res => {
+                                // Если данные успешно сохранены
+                                if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                                    successInsert++;
+                                }
+                                // Если цикл завершился, то закрываем сессию
+                                if (counter === questions.length - 1) {
+                                    console.log(res.rows[0]);
+                                    console.log('Success: ' + successInsert);
+                                    console.log('Error: ' + errorInsert);
+                                    sessionClose(researchKeys);
+                                }
+                            })
+                            .catch(err => {
+                                console.log(err.message);
+                                errorInsert++;
+                                // Если цикл завершился, то закрываем сессию
+                                if (counter === questions.length - 1) {
+                                    console.log('Success: ' + successInsert);
+                                    console.log('Error: ' + errorInsert);
+                                    sessionClose(researchKeys);
+                                }
+                            })
                         }
                     })
                     .catch (err => {
-                        // Освобождаем пул соединений от нашего клиента
-                        dbClient.release();
                         console.log(err.message);
-                        errorInsert++;
-                        if (counter === questions.length - 1) {
-                            console.log('Success: ' + successInsert);
-                            console.log('Error: ' + errorInsert);
-                        }
                     })
                 }
-                /*
+                
                 // Если варианты ответов существуют
                 if (typeof question.Answers[0].Answer === 'object' && question.Answers[0].Answer.length > 0) {
                     for (let iAns in question.Answers[0].Answer) {
@@ -272,13 +334,46 @@ let
                             ansPosition = ansData.$.position,
                             // ???
                             ansKeyto = ansData.$.keyto
-                            ;
-                        //console.log(ansValue);
+                        ;
+                        if (parseInt(ansKeyto) > 0){
+                            for (let iFA in resultAnswers) {
+                                // Если текст ответа пользователя совпадает с текстом ответа в вариантах
+                                if (resultAnswers[iFA] === ansValue) {
+                                    secretQuestions[researchKeys.session_id][ansKeyto] = ansKeyto;
+                                    console.log('SECRET: '+ansKeyto);
+                                }
+                            }
+                        }
                     }
                 }
-                */
+                /**/
             }
         }
+    },
+    sessionClose = function (researchKeys){
+        let sessionEndDate = researchKeys.session_date;
+        sessionEndDate.setSeconds(sessionEndDate.getSeconds() + 1);
+        // Удаляем секретные вопросы текущей сессииы
+        delete secretQuestions[researchKeys.session_id];
+        // Обновляем данные сессии
+        dbClient.query(`
+            UPDATE researches_sessions
+            SET date_finish = $1
+            WHERE id = $2`, [sessionEndDate,researchKeys.session_id]
+        )
+        .then(res => {
+            // Если данные успешно сохранены
+            if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                console.log('Session closed!');
+            }
+            // Освобождаем пул соединений от нашего клиента
+            dbClient.release();
+        })
+        .catch(err => {
+            console.log(err.message);
+            // Освобождаем пул соединений от нашего клиента
+            dbClient.release();
+        })
     }
 ;
 

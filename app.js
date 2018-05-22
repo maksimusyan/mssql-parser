@@ -105,7 +105,7 @@ let
                 ;
 
                 // Если массив вопросов существует и он не пустой
-                if (typeof result.Test.Questions !== 'undefined' && result.Test.Questions.length > 0) {
+                if (typeof result.Test.Questions !== 'undefined' && typeof result.Test.Questions[0] !== 'undefined' && typeof result.Test.Questions[0].Question !== 'undefined') {
                     // Ищем в базе ID исследования по кодовому слову
                     dbClient.query(getResearchIdQuery)
                         .then(res => {
@@ -155,7 +155,7 @@ let
                                                 session_id: res.rows[0].id
                                             };
                                             // Вызываем функцию обработки вопросов
-                                            setQuestionsData(result.Test.Questions, researchKeys);
+                                            setQuestionsData(result.Test.Questions[0].Question, researchKeys);
                                         }
                                     })
                                     .catch(err => {
@@ -178,67 +178,94 @@ let
     },
     setQuestionsData = function (questions, researchKeys){
         if (typeof questions !== 'object' || questions.length === 0){
+            console.log('Questions is empty');
             return false;
         }
+        let successInsert = 0,
+            errorInsert = 0;
         // Проходим в цикле каждый Вопрос
         for (let iQ in questions) {
             // question - это массив с одгним элементом, где:
-            // question[0].$ - объект корневых атрибутов (значения, выбранные пользователем)
-            // question[0].Answers - массив доступных вопросов
-            let question = questions[iQ].Question;
+            // question[iQ].$ - объект корневых атрибутов (значения, выбранные пользователем)
+            // question[iQ].Answers - массив доступных вопросов
+            
+            let counter = parseInt(iQ),
+                question = questions[counter];
 
             // Предполагаю, что каких-то данных не существует. Проверяем:
-            if (typeof question[0] === 'object' && typeof question[0].Answers === 'object') {
+            if (typeof question === 'object') {
                 // Если ответа нет или он пустой, то присваиваем пустую строку
                 let srcAnswer;
-                if (typeof question[0].$.answer !== 'undefined' && question[0].$.answer !== '') {
-                    srcAnswer = question[0].$.answer.split('@#@');
+                if (typeof question.$.answer !== 'undefined' && question.$.answer !== '') {
+                    srcAnswer = question.$.answer.split('@#@');
                 } else {
                     srcAnswer = ['', ''];
                 }
                 let
                     // ???
-                    questMinimum = typeof question[0].$.minimum !== 'undefined' ? question[0].$.minimum : null,
+                    questMinimum = typeof question.$.minimum !== 'undefined' ? question.$.minimum : null,
                     // ???
-                    questMaximum = typeof question[0].$.maximum !== 'undefined' ? question[0].$.maximum : null,
+                    questMaximum = typeof question.$.maximum !== 'undefined' ? question.$.maximum : null,
                     // ???
-                    questIsSecret = typeof question[0].$.isSecret !== 'undefined' ? question[0].$.isSecret : null,
+                    questIsSecret = typeof question.$.isSecret !== 'undefined' ? question.$.isSecret : null,
                     // Значение выбранного ответа
                     resultAnswerValue = srcAnswer[0],
                     // ID выбранного ответа
                     resultAnswerId = srcAnswer[1],
                     // Тип вопроса
-                    questType = question[0].$.type,
+                    questType = question.$.type,
                     // Позиция вопроса
-                    questPosition = typeof question[0].$.position !== 'undefined' ? question[0].$.position : 0,
+                    questPosition = typeof question.$.position !== 'undefined' ? question.$.position : 0,
                     // Текст вопроса
-                    questText = question[0].$.text,
+                    questText = question.$.text,
                     // Текст вопроса, подготовленный для поиска в базе
                     questTextModify = questText.replace(/<br\/>/g, '\\n').replace(/&lt;br\/&gt;/g, '\\n')
                 ;
-                // Ищем вопрос в базе по тексту
+                if (counter === 0){
+                // Ищем вопрос и варианты ответов в базе по тексту вопроса
                 dbClient.query(`
-                        SELECT * 
-                        FROM scenarios_questions 
-                        WHERE scenario_id='${researchKeys.scenario_id}' AND text='${questTextModify}'
+                        SELECT 
+                            sq.id, sqa.id as answer_id, sqa.text as answer_text, sqa.value as answer_value
+                        FROM 
+                            scenarios_questions sq
+                        LEFT JOIN 
+                            scenarios_questions_answers sqa ON sqa.question_id=sq.id 
+                        WHERE 
+                            sq.scenario_id='${researchKeys.scenario_id}' 
+                        AND 
+                            sq.text='${questTextModify}'
                     `)
                     .then(res => {
                         // Если вопрос найден
                         if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-                            // В массив данных текущего исследования добавляем ID вопроса из базы
-                            researchKeys.question_id = res.rows[0].id;
+                            
+
+
+                            successInsert++;
+
+                            if (counter === questions.length - 1){
+                                console.log('Success: '+successInsert);
+                                console.log('Error: '+errorInsert);
+                            }
+
                         }
                     })
                     .catch (err => {
                         // Освобождаем пул соединений от нашего клиента
                         dbClient.release();
                         console.log(err.message);
+                        errorInsert++;
+                        if (counter === questions.length - 1) {
+                            console.log('Success: ' + successInsert);
+                            console.log('Error: ' + errorInsert);
+                        }
                     })
-
+                }
+                /*
                 // Если варианты ответов существуют
-                if (typeof question[0].Answers[0].Answer === 'object' && question[0].Answers[0].Answer.length > 0) {
-                    for (let iAns in question[0].Answers[0].Answer) {
-                        let ansData = question[0].Answers[0].Answer[iAns],
+                if (typeof question.Answers[0].Answer === 'object' && question.Answers[0].Answer.length > 0) {
+                    for (let iAns in question.Answers[0].Answer) {
+                        let ansData = question.Answers[0].Answer[iAns],
                             // ???
                             ansValue = ansData._,
                             // ???
@@ -246,9 +273,10 @@ let
                             // ???
                             ansKeyto = ansData.$.keyto
                             ;
-                        console.log(ansValue);
+                        //console.log(ansValue);
                     }
                 }
+                */
             }
         }
     }

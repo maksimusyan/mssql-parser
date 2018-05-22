@@ -31,6 +31,12 @@ let
     xmls = [],
     // Клиент подключения к базе
     dbClient = null,
+    // Клиент подключения к базе
+    dbQueryCounter = 0,
+    // Общее кол-во успешных запросов сохранения данных
+    allQuerySuccess = 0,
+    // Общее кол-во не удачных запросов сохранения данных
+    allQueryErrors = 0,
     // Массив секретных вопросов, на которые ответил пользователь
     secretQuestions = {},
     // Функция разбора дамп-файла на строки и парсинга данных
@@ -73,10 +79,18 @@ let
                 }
 
             });
+
+            // Тестируем на небольшом кол-ве данных
+            let testCount = 3, testXmls = [];
+            for (let i = 0; i <= testCount; i++){
+                if (typeof xmls[i] !== 'undefined'){
+                    testXmls.push(xmls[i]);
+                }
+            }
+            xmls = testXmls;
+
             // Готовые данные отправляем на экспорт
-            //xmlToJsObject(xmls);
-            xmlToJsObject([xmls[0]]);
-            //console.log(xmls.length);
+            xmlToJsObject(xmls);
         });
     },
     xmlToJsObject = function (xmls){
@@ -150,7 +164,6 @@ let
                                     }
                                 ;
                                 // Создаём сессию
-
                                 dbClient.query(`
                                         INSERT INTO researches_sessions (
                                             research_id,
@@ -345,9 +358,11 @@ let
                             // Если данные успешно сохранены
                             if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
                                 successInsert++;
+                                allQuerySuccess++;
                             }
                             // Если цикл завершился, то закрываем сессию
                             if (counter === questions.length - 1) {
+                                console.log('SESSION: ' + reData.session_id);
                                 console.log('Success: ' + successInsert);
                                 console.log('Error: ' + errorInsert);
                                 sessionClose(reData);
@@ -356,8 +371,10 @@ let
                         .catch(err => {
                             console.log(err.message);
                             errorInsert++;
+                            allQueryErrors++;
                             // Если цикл завершился, то закрываем сессию
                             if (counter === questions.length - 1) {
+                                console.log('SESSION: ' + reData.session_id);
                                 console.log('Success: ' + successInsert);
                                 console.log('Error: ' + errorInsert);
                                 sessionClose(reData);
@@ -375,7 +392,6 @@ let
         let sessionEndDate = reData.session_date;
         sessionEndDate.setSeconds(sessionEndDate.getSeconds() + 1);
         // Удаляем секретные вопросы текущей сессии
-        console.log(secretQuestions[reData.session_id]);
         delete secretQuestions[reData.session_id];
         // Обновляем данные сессии
         dbClient.query(`
@@ -384,15 +400,23 @@ let
             WHERE id = $2`, [sessionEndDate,reData.session_id]
         )
         .then(res => {
-            // Если данные успешно сохранены
-            console.log('Session closed!');
-            // Освобождаем пул соединений от нашего клиента
-            dbClient.release();
+            dbQueryCounter++;
+            if (dbQueryCounter >= xmls.length){
+                console.log('=========  RESULT  ========');
+                console.log('ALL_success: ' + allQuerySuccess);
+                console.log('ALL_error: ' + allQueryErrors);
+                dbClient.release();
+            }
         })
         .catch(err => {
             console.log(err.message);
-            // Освобождаем пул соединений от нашего клиента
-            dbClient.release();
+            dbQueryCounter++;
+            if (dbQueryCounter >= xmls.length) {
+                console.log('=========  RESULT  ========');
+                console.log('ALL_success: ' + allQuerySuccess);
+                console.log('ALL_error: ' + allQueryErrors);
+                dbClient.release();
+            }
         })
     }
 ;

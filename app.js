@@ -29,6 +29,8 @@ let
     searchActive = false,
     // Все найденные xml-тесты
     xmls = [],
+    // Массив выбранных анкет
+    testXmls = [],
     // Клиент подключения к базе
     dbClient = null,
     // Клиент подключения к базе
@@ -57,7 +59,9 @@ let
     // Если включен режим тестирования кода
     isTest = false,
     // Количество тестируемых Исследований, где: 0 - все анкеты
-    testCount = 20,
+    testCount = 100,
+    // Сколько анкет пропустить
+    testOffset = 0,
     // Функция разбора дамп-файла на строки и парсинга данных
     parseFile = function(){
         // Читаем дамп-файл асинхронно
@@ -99,28 +103,42 @@ let
 
             });
 
-            if (testCount > 0){
-                // Тестируем на небольшом кол-ве данных
-                let testXmls = []; // Массив тестовых анкет
-                for (let i = 1; i <= testCount; i++) {
+            // Если есть ограничение на кол-во или пропуск анкет
+            if (testCount > 0 || testOffset > 0){
+                // Сколько можно забрать анкет
+                let maxCount = testCount > 0 ? testCount : xmls.length - testOffset;
+                // Прогоняем все анкеты в цикле
+                for (let i = 1; i <= xmls.length; i++) {
+                    // Если анкета есть в массиве
                     if (typeof xmls[i] !== 'undefined') {
-                        testXmls.push(xmls[i]);
+                        // Если номер больше отступа и макc.кол-во не превышено
+                        if (i > testOffset && maxCount > 0) {
+                            // Добавляем анкету в новый массив
+                            testXmls.push(xmls[i]);
+                            // Убавляем максимальное кол-во
+                            maxCount--;
+                        } else {
+                            // В противном случае освобождаем память от анкеты
+                            delete xmls[i];
+                        }
                     }
                 }
-                xmls = testXmls;
+            } else {
+                testXmls = xmls;
             }
 
+            console.log('Всего анкет: ' + testXmls.length)
             // Готовые данные отправляем на экспорт
-            xmlToJsObject(xmls);
+            xmlToJsObject(testXmls);
         });
     },
-    xmlToJsObject = function (xmls){
+    xmlToJsObject = function (xmlsArray){
         // Если массив xml-тестов пустой
-        if (xmls.length === 0) return false;
+        if (xmlsArray.length === 0) return false;
         // Проходим в цикле каждый Тест
-        for (let index in xmls) {
+        for (let index in xmlsArray) {
             // Преобразуем xml-строку в объект JS
-            xml2js(xmls[index], function (err, result) {
+            xml2js(xmlsArray[index], function (err, result) {
                 // Атрибуты корневого элемента доступны через ключ $
                 let
                     // Название Исследования
@@ -224,6 +242,7 @@ let
                                         .then(res => {
                                             // Если сессия создана
                                             if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                                                //console.log('session start: '+res.rows[0].id);
                                                 // В массив данных исследования помещаем ID текущей сессии
                                                 reData.session_id = res.rows[0].id;
                                                 // Создаём ключ текущей сессии для массива секретных вопросов
@@ -291,9 +310,7 @@ let
                     // Позиция вопроса
                     questPosition = typeof question.$.position !== 'undefined' ? parseInt(question.$.position) : 0,
                     // Текст вопроса
-                    questText = question.$.text,
-                    // Текст вопроса, подготовленный для поиска в базе
-                    questTextModify = questText.replace(/\\n/g, '<br\/>').replace(/&lt;br\/&gt;/g, '<br\/>')
+                    questText = question.$.text.trim()
                 ;
 
                 // Если в файле с дампом существуют варианты ответов
@@ -319,7 +336,7 @@ let
                     }
                 }
                 if(isTest){
-                    //console.log(questTextModify);
+                    //console.log(questText);
                     //console.log('\n');
                 } else {
                     // Если вопрос не секретный или открыт конкретный секретный вопрос
@@ -327,98 +344,103 @@ let
                         // Ищем ID вопроса по Тексту и Позиции вопроса
                         let questionID = 0;
                         for (let iQdb in reData.questions){
-                            if (questionID === 0 && reData.questions[iQdb].sq_text === questTextModify && reData.questions[iQdb].sq_position === questPosition){
+                            if (questionID === 0 && reData.questions[iQdb].sq_text.trim() === questText && reData.questions[iQdb].sq_position === questPosition){
                                 questionID = reData.questions[iQdb].sq_id;
                             }
                         }
-                        // Ищем варианты ответов в базе по ID вопроса
-                        dbClient.query(`
-                            SELECT 
-                                *
-                            FROM 
-                                scenarios_questions_answers
-                            WHERE 
-                                question_id='${questionID}';
-                        `)
-                        .then(res => {
-                            let
-                                answerResultValue = '', // Итоговые значения ответов пользователя (через запятую)
-                                answerResultIds = ''; // Итоговые ID ответов пользователя (через запятую)
-                            // Если варианты ответов найдены
-                            if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-                                // Ищем в ответах из базы тот, который выбрал пользователь
-                                for (let iAns in res.rows){
-                                    let curDbAnswer = res.rows[iAns];
-                                    for (let irA in resultAnswers){
-                                        // Если текст ответа пользователя совпадает с текстом ответа в базе
-                                        if (resultAnswers[irA] === curDbAnswer.text){
-                                            if (answerResultValue === ''){
-                                                answerResultValue = curDbAnswer.value;
-                                            } else {
-                                                answerResultValue += ','+curDbAnswer.value;
-                                            }
-                                            if (answerResultIds === ''){
-                                                answerResultIds = curDbAnswer.id;
-                                            } else {
-                                                answerResultIds += ',' + curDbAnswer.id;
+                        if(parseInt(questionID) === 0){
+                            console.log('ВОПРОС НЕ НАЙДЕН:#' + questText + '#');
+                        }
+                        // Ищем варианты ответов в базе по ID вопроса если текст вопроса найден в базе
+                        if (parseInt(questionID) > 0){
+                            dbClient.query(`
+                                SELECT 
+                                    *
+                                FROM 
+                                    scenarios_questions_answers
+                                WHERE 
+                                    question_id='${questionID}';
+                            `)
+                            .then(res => {
+                                let
+                                    answerResultValue = '', // Итоговые значения ответов пользователя (через запятую)
+                                    answerResultIds = ''; // Итоговые ID ответов пользователя (через запятую)
+                                // Если варианты ответов найдены
+                                if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                                    // Ищем в ответах из базы тот, который выбрал пользователь
+                                    for (let iAns in res.rows){
+                                        let curDbAnswer = res.rows[iAns];
+                                        for (let irA in resultAnswers){
+                                            // Если текст ответа пользователя совпадает с текстом ответа в базе
+                                            if (resultAnswers[irA] === curDbAnswer.text){
+                                                if (answerResultValue === ''){
+                                                    answerResultValue = curDbAnswer.value;
+                                                } else {
+                                                    answerResultValue += ','+curDbAnswer.value;
+                                                }
+                                                if (answerResultIds === ''){
+                                                    answerResultIds = curDbAnswer.id;
+                                                } else {
+                                                    answerResultIds += ',' + curDbAnswer.id;
+                                                }
                                             }
                                         }
                                     }
+                                    if (answerResultIds === '') {
+                                        answerResultIds = null;
+                                    }
                                 }
-                                if (answerResultIds === '') {
-                                    answerResultIds = null;
-                                }
-                            }
-
-                            // Сохраняем ответ пользователя
-                            dbClient.query(`
-                                    INSERT INTO researches_data (
-                                        session_id,
-                                        question_id,
-                                        answer,
-                                        answers_ids,
-                                        date_create
-                                    ) 
-                                    VALUES ($1, $2, $3, $4, $5)
-                                    RETURNING *;`,
-                                [
-                                    reData.session_id,
-                                    questionID,
-                                    answerResultValue,
-                                    answerResultIds,
-                                    reData.session_date
-                                ]
-                            )
-                            .then(res => {
-                                // Если данные успешно сохранены
-                                if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-                                    successInsert++;
-                                    allQuerySuccess++;
-                                }
-                                // Если цикл завершился, то закрываем сессию
-                                if (counter === questions.length - 1) {
-                                    console.log('SESSION: ' + reData.session_id);
-                                    console.log('Success: ' + successInsert);
-                                    console.log('Error: ' + errorInsert);
-                                    sessionClose(reData);
-                                }
+    
+                                // Сохраняем ответ пользователя
+                                dbClient.query(`
+                                        INSERT INTO researches_data (
+                                            session_id,
+                                            question_id,
+                                            answer,
+                                            answers_ids,
+                                            date_create
+                                        ) 
+                                        VALUES ($1, $2, $3, $4, $5)
+                                        RETURNING *;`,
+                                    [
+                                        reData.session_id,
+                                        questionID,
+                                        answerResultValue,
+                                        answerResultIds,
+                                        reData.session_date
+                                    ]
+                                )
+                                .then(res => {
+                                    // Если данные успешно сохранены
+                                    if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                                        successInsert++;
+                                        allQuerySuccess++;
+                                    }
+                                    // Если цикл завершился, то закрываем сессию
+                                    if (counter === questions.length - 1) {
+                                        console.log('SESSION: ' + reData.session_id);
+                                        console.log('Success: ' + successInsert);
+                                        console.log('Error: ' + errorInsert);
+                                        sessionClose(reData);
+                                    }
+                                })
+                                .catch(err => {
+                                    console.log(err.message);
+                                    errorInsert++;
+                                    allQueryErrors++;
+                                    // Если цикл завершился, то закрываем сессию
+                                    if (counter === questions.length - 1) {
+                                        console.log('SESSION: ' + reData.session_id);
+                                        console.log('Success: ' + successInsert);
+                                        console.log('Error: ' + errorInsert);
+                                        sessionClose(reData);
+                                    }
+                                })
                             })
-                            .catch(err => {
+                            .catch (err => {
                                 console.log(err.message);
-                                errorInsert++;
-                                allQueryErrors++;
-                                // Если цикл завершился, то закрываем сессию
-                                if (counter === questions.length - 1) {
-                                    console.log('SESSION: ' + reData.session_id);
-                                    console.log('Success: ' + successInsert);
-                                    console.log('Error: ' + errorInsert);
-                                    sessionClose(reData);
-                                }
                             })
-                        })
-                        .catch (err => {
-                            console.log(err.message);
-                        })
+                        }
                     }
                 }
             }
@@ -441,7 +463,7 @@ let
         )
         .then(res => {
             dbQueryCounter++;
-            if (dbQueryCounter >= xmls.length){
+            if (dbQueryCounter >= testXmls.length){
                 console.log('=========  RESULT  ========');
                 console.log('ALL_success: ' + allQuerySuccess);
                 console.log('ALL_error: ' + allQueryErrors);
@@ -454,7 +476,7 @@ let
         .catch(err => {
             console.log(err.message);
             dbQueryCounter++;
-            if (dbQueryCounter >= xmls.length) {
+            if (dbQueryCounter >= testXmls.length) {
                 console.log('=========  RESULT  ========');
                 console.log('ALL_success: ' + allQuerySuccess);
                 console.log('ALL_error: ' + allQueryErrors);

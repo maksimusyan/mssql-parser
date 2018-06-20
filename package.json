@@ -5,13 +5,14 @@
     "main": "app.js",
     "author": "",
     "license": "ISC",
-    "homepage": "https://github.com/maksimusyan",
+    "homepage": "https://github.com/maksimusyan/mssql-parser",
     "scripts": {
         "test": "echo \"Run success\" && exit 1"
     },
     "dependencies": {
         "fs": "0.0.1-security",
         "pg": "7.4.3",
-        "xml2js": "0.4.19"
+        "xml2js": "0.4.19",
+        "dotenv": "6.0.0"
     }
-  }
+}

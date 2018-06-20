@@ -1,5 +1,9 @@
 // Скрипт парсинга дамп-файла базы MS SQL
+// node --max-old-space-size=8192 app.js
 'use strict';
+
+// Подключение переменных окружения из конфигурационного файла
+require('dotenv').config();
 
 // Устанавливаем константы
 const
@@ -8,15 +12,12 @@ const
     db = require('./pg_db'), // модуль работы с PostgreSQL
     v8 = require('v8'), // модуль движка V8
     xml2js = require('xml2js').parseString // модуль преобразования XML в объект JS
-;
+    ;
 
 // Устанавливаем максимально допустимое использование памяти в мегабайтах
-v8.setFlagsFromString('--max_old_space_size=4096');
+v8.setFlagsFromString('--max_old_space_size=8192');
 
-// Подключение переменных окружения из конфигурационного файла
-require('dotenv').config();
-
-let 
+let
     // Текущий индекс в массиве xml-тестов
     currentTestId = 0,
     // Маркер начала склеивания xml-строк
@@ -41,31 +42,33 @@ let
     allQuerySuccess = 0,
     // Общее кол-во не удачных запросов сохранения данных
     allQueryErrors = 0,
+    // Общее кол-во не найденных вопросов
+    allQuestionsNotFound = 0,
     // Массив секретных вопросов, на которые ответил пользователь
     secretQuestions = {},
     // Массив кодовых имён исследований
     researchCodes = {},
     // Массив разрешённых кодовых имён исследований
     researchCodesEnabled = {
-        'moex2016-1':1,
-        'SDM':1,
-        'TOPSDM':1,
-        'SDM_F':1,
-        'RNB':1,
-        'WSCB':1,
-        'WSCB_01':1,
-        'IskraUralTel':1,
-        'moex2016':1,
-        'beeline2016':1
+        'moex2016-1': 1,
+        'SDM': 1,
+        'TOPSDM': 1,
+        'SDM_F': 1,
+        'RNB': 1,
+        'WSCB': 1,
+        'WSCB_01': 1,
+        'IskraUralTel': 1,
+        'moex2016': 1,
+        'beeline2016': 1
     },
     // Если включен режим тестирования кода
     isTest = false,
     // Количество тестируемых Исследований, где: 0 - все анкеты
-    testCount = 100,
+    testCount = 8200,
     // Сколько анкет пропустить
     testOffset = 0,
     // Функция разбора дамп-файла на строки и парсинга данных
-    parseFile = function(){
+    parseFile = function () {
         // Читаем дамп-файл асинхронно
         fs.readFile(dbFile, { encoding: 'utf8' }, function (err, data) {
             if (err) throw err; // Выкидываем исключение в случае ошибки
@@ -106,7 +109,7 @@ let
             });
 
             // Если есть ограничение на кол-во или пропуск анкет
-            if (testCount > 0 || testOffset > 0){
+            if (testCount > 0 || testOffset > 0) {
                 // Сколько можно забрать анкет
                 let maxCount = testCount > 0 ? testCount : xmls.length - testOffset;
                 // Прогоняем все анкеты в цикле
@@ -134,7 +137,7 @@ let
             xmlToJsObject(testXmls);
         });
     },
-    xmlToJsObject = function (xmlsArray){
+    xmlToJsObject = function (xmlsArray) {
         // Если массив xml-тестов пустой
         if (xmlsArray.length === 0) return false;
         // Проходим в цикле каждый Тест
@@ -167,41 +170,41 @@ let
                             scenarios_questions sq ON rs.scenario_id=sq.scenario_id 
                         WHERE r.password='${testCode}';
                     `
-                ;
-                
+                    ;
+
                 // Если массив вопросов существует и он не пустой
-                if (typeof researchCodesEnabled[testCode] !== 'undefined' 
-                        && typeof result.Test.Questions !== 'undefined' 
-                        && typeof result.Test.Questions[0] !== 'undefined' 
-                        && typeof result.Test.Questions[0].Question !== 'undefined'){
-                    
+                if (typeof researchCodesEnabled[testCode] !== 'undefined'
+                    && typeof result.Test.Questions !== 'undefined'
+                    && typeof result.Test.Questions[0] !== 'undefined'
+                    && typeof result.Test.Questions[0].Question !== 'undefined') {
+
                     // Добавляем кодовое слово в общий список
                     researchCodes[testCode] = 1;
 
                     if (isTest) {
                         // ЗАПУСК ТЕСТА ДАННЫХ
-                        let reData = {research_id: 0,organisation_id: 0,scenario_id: 0,session_date: new Date(),questions: []};
+                        let reData = { research_id: 0, organisation_id: 0, scenario_id: 0, session_date: new Date(), questions: [] };
                         setQuestionsData(result.Test.Questions[0].Question, reData);
                     } else {
                         dbClient.query(getResearchQuestionsQuery)
                             .then(res => {
                                 // Если вопросы исследования найдены
                                 if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].research_id === 'number') {
-                                    
+
                                     // EXAMPLE
-                                        //res.rows[0] = 
-                                        //{
-                                            //research_id: 1,
-                                            //organisation_id: 1,
-                                            //scenario_id: 1,
-                                            //sq_id: 1,
-                                            //sq_text: 'Текст вопроса',
-                                            //sq_secret: false,
-                                            //sq_position: 1
-                                        //}
+                                    //res.rows[0] = 
+                                    //{
+                                    //research_id: 1,
+                                    //organisation_id: 1,
+                                    //scenario_id: 1,
+                                    //sq_id: 1,
+                                    //sq_text: 'Текст вопроса',
+                                    //sq_secret: false,
+                                    //sq_position: 1
+                                    //}
                                     //
-                                    
-                                    let 
+
+                                    let
                                         // Параметры текущего исследования
                                         reData = {
                                             // ID Исследования в базе
@@ -215,7 +218,7 @@ let
                                             // Все вопросы текущего исследования
                                             questions: res.rows
                                         }
-                                    ;
+                                        ;
                                     // Создаём сессию
                                     dbClient.query(`
                                             INSERT INTO researches_sessions (
@@ -230,17 +233,17 @@ let
                                             ) 
                                             VALUES ($1, $2, $3, $4, $5, researches_sessions_generate_id(), $6, $7)
                                             RETURNING *;`,
-                                            [
-                                                reData.research_id,
-                                                reData.scenario_id,
-                                                null,
-                                                reData.session_date,
-                                                null,
-                                                null,
-                                                null,
-    
-                                            ]
-                                        )
+                                        [
+                                            reData.research_id,
+                                            reData.scenario_id,
+                                            null,
+                                            reData.session_date,
+                                            null,
+                                            null,
+                                            null,
+
+                                        ]
+                                    )
                                         .then(res => {
                                             // Если сессия создана
                                             if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
@@ -250,7 +253,8 @@ let
                                                 // Создаём ключ текущей сессии для массива секретных вопросов
                                                 secretQuestions[res.rows[0].id] = {};
                                                 // Вызываем функцию обработки вопросов
-                                                setQuestionsData(result.Test.Questions[0].Question, reData);
+                                                let curNumber = parseInt(index) + 1;
+                                                setQuestionsData(result.Test.Questions[0].Question, reData, curNumber);
                                             }
                                         })
                                         .catch(err => {
@@ -268,8 +272,8 @@ let
             });
         }
     },
-    setQuestionsData = function (questions, reData){
-        if (typeof questions !== 'object' || questions.length === 0){
+    setQuestionsData = function (questions, reData, curNumber) {
+        if (typeof questions !== 'object' || questions.length === 0) {
             console.log('Questions is empty');
             return false;
         }
@@ -280,7 +284,7 @@ let
             // question - это массив с одгним элементом, где:
             // question[iQ].$ - объект корневых атрибутов (значения, выбранные пользователем)
             // question[iQ].Answers - массив доступных вопросов
-            
+
             let counter = parseInt(iQ),
                 question = questions[counter];
 
@@ -292,7 +296,7 @@ let
                 if (typeof question.$.answer !== 'undefined') {
                     // Разбиваем строку ответа на разделители множественного ответа (типа SOFT)
                     let srcAnswer = question.$.answer.split('@%@');
-                    for (let iSa in srcAnswer){
+                    for (let iSa in srcAnswer) {
                         // Отделяем текст ответа от позиции
                         let ansText = srcAnswer[iSa].split('@#@');
                         resultAnswers.push(ansText[0]);
@@ -313,7 +317,7 @@ let
                     questPosition = typeof question.$.position !== 'undefined' ? parseInt(question.$.position) : 0,
                     // Текст вопроса
                     questText = question.$.text.trim()
-                ;
+                    ;
 
                 // Если в файле с дампом существуют варианты ответов
                 if (typeof question.Answers !== 'undefined' && typeof question.Answers[0].Answer === 'object' && question.Answers[0].Answer.length > 0) {
@@ -337,24 +341,25 @@ let
                         }
                     }
                 }
-                if(isTest){
+                if (isTest) {
                     //console.log(questText);
                     //console.log('\n');
                 } else {
                     // Если вопрос не секретный или открыт конкретный секретный вопрос
-                    if (questIsSecret === false || secretQuestions[reData.session_id][questPosition] === questPosition){
+                    if (questIsSecret === false || secretQuestions[reData.session_id][questPosition] === questPosition) {
                         // Ищем ID вопроса по Тексту и Позиции вопроса
                         let questionID = 0;
-                        for (let iQdb in reData.questions){
-                            if (questionID === 0 && reData.questions[iQdb].sq_text.trim() === questText && reData.questions[iQdb].sq_position === questPosition){
+                        for (let iQdb in reData.questions) {
+                            if (questionID === 0 && reData.questions[iQdb].sq_text.trim() === questText && reData.questions[iQdb].sq_position === questPosition) {
                                 questionID = reData.questions[iQdb].sq_id;
                             }
                         }
-                        if(parseInt(questionID) === 0){
-                            console.log('ВОПРОС НЕ НАЙДЕН:#' + questText + '#');
+                        if (parseInt(questionID) === 0) {
+                            allQuestionsNotFound++;
+                            //console.log('ВОПРОС НЕ НАЙДЕН:#' + questText + '#');
                         }
                         // Ищем варианты ответов в базе по ID вопроса если текст вопроса найден в базе
-                        if (parseInt(questionID) > 0){
+                        if (parseInt(questionID) > 0) {
                             dbClient.query(`
                                 SELECT 
                                     *
@@ -363,38 +368,38 @@ let
                                 WHERE 
                                     question_id='${questionID}';
                             `)
-                            .then(res => {
-                                let
-                                    answerResultValue = '', // Итоговые значения ответов пользователя (через запятую)
-                                    answerResultIds = ''; // Итоговые ID ответов пользователя (через запятую)
-                                // Если варианты ответов найдены
-                                if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-                                    // Ищем в ответах из базы тот, который выбрал пользователь
-                                    for (let iAns in res.rows){
-                                        let curDbAnswer = res.rows[iAns];
-                                        for (let irA in resultAnswers){
-                                            // Если текст ответа пользователя совпадает с текстом ответа в базе
-                                            if (resultAnswers[irA] === curDbAnswer.text){
-                                                if (answerResultValue === ''){
-                                                    answerResultValue = curDbAnswer.value;
-                                                } else {
-                                                    answerResultValue += ','+curDbAnswer.value;
-                                                }
-                                                if (answerResultIds === ''){
-                                                    answerResultIds = curDbAnswer.id;
-                                                } else {
-                                                    answerResultIds += ',' + curDbAnswer.id;
+                                .then(res => {
+                                    let
+                                        answerResultValue = '', // Итоговые значения ответов пользователя (через запятую)
+                                        answerResultIds = ''; // Итоговые ID ответов пользователя (через запятую)
+                                    // Если варианты ответов найдены
+                                    if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                                        // Ищем в ответах из базы тот, который выбрал пользователь
+                                        for (let iAns in res.rows) {
+                                            let curDbAnswer = res.rows[iAns];
+                                            for (let irA in resultAnswers) {
+                                                // Если текст ответа пользователя совпадает с текстом ответа в базе
+                                                if (resultAnswers[irA] === curDbAnswer.text) {
+                                                    if (answerResultValue === '') {
+                                                        answerResultValue = curDbAnswer.value;
+                                                    } else {
+                                                        answerResultValue += ',' + curDbAnswer.value;
+                                                    }
+                                                    if (answerResultIds === '') {
+                                                        answerResultIds = curDbAnswer.id;
+                                                    } else {
+                                                        answerResultIds += ',' + curDbAnswer.id;
+                                                    }
                                                 }
                                             }
                                         }
+                                        if (answerResultIds === '') {
+                                            answerResultIds = null;
+                                        }
                                     }
-                                    if (answerResultIds === '') {
-                                        answerResultIds = null;
-                                    }
-                                }
-    
-                                // Сохраняем ответ пользователя
-                                dbClient.query(`
+
+                                    // Сохраняем ответ пользователя
+                                    dbClient.query(`
                                         INSERT INTO researches_data (
                                             session_id,
                                             question_id,
@@ -404,44 +409,50 @@ let
                                         ) 
                                         VALUES ($1, $2, $3, $4, $5)
                                         RETURNING *;`,
-                                    [
-                                        reData.session_id,
-                                        questionID,
-                                        answerResultValue,
-                                        answerResultIds,
-                                        reData.session_date
-                                    ]
-                                )
-                                .then(res => {
-                                    // Если данные успешно сохранены
-                                    if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
-                                        successInsert++;
-                                        allQuerySuccess++;
-                                    }
-                                    // Если цикл завершился, то закрываем сессию
-                                    if (counter === questions.length - 1) {
-                                        console.log('SESSION: ' + reData.session_id);
-                                        console.log('Success: ' + successInsert);
-                                        console.log('Error: ' + errorInsert);
-                                        sessionClose(reData);
-                                    }
+                                        [
+                                            reData.session_id,
+                                            questionID,
+                                            answerResultValue,
+                                            answerResultIds,
+                                            reData.session_date
+                                        ]
+                                    )
+                                        .then(res => {
+                                            // Если данные успешно сохранены
+                                            if (typeof res.rows[0] !== 'undefined' && typeof res.rows[0].id === 'number' && res.rows[0].id > 0) {
+                                                successInsert++;
+                                                allQuerySuccess++;
+                                            }
+                                            // Если цикл завершился, то закрываем сессию
+                                            if (counter === questions.length - 1) {
+                                                console.log('--------------')
+                                                console.log('SESSION: ' + reData.session_id);
+                                                console.log('Success: ' + successInsert);
+                                                console.log('Error: ' + errorInsert);
+                                                console.log('Number: ' + curNumber + '/' + testXmls.length);
+                                                console.log('ВОПРОСОВ НЕ НАЙДЕНО: ' + allQuestionsNotFound);
+                                                sessionClose(reData);
+                                            }
+                                        })
+                                        .catch(err => {
+                                            console.log(err.message);
+                                            errorInsert++;
+                                            allQueryErrors++;
+                                            // Если цикл завершился, то закрываем сессию
+                                            if (counter === questions.length - 1) {
+                                                console.log('--------------')
+                                                console.log('SESSION: ' + reData.session_id);
+                                                console.log('Success: ' + successInsert);
+                                                console.log('Error: ' + errorInsert);
+                                                console.log('Number: ' + curNumber + '/' + testXmls.length);
+                                                console.log('ВОПРОСОВ НЕ НАЙДЕНО: ' + allQuestionsNotFound);
+                                                sessionClose(reData);
+                                            }
+                                        })
                                 })
                                 .catch(err => {
                                     console.log(err.message);
-                                    errorInsert++;
-                                    allQueryErrors++;
-                                    // Если цикл завершился, то закрываем сессию
-                                    if (counter === questions.length - 1) {
-                                        console.log('SESSION: ' + reData.session_id);
-                                        console.log('Success: ' + successInsert);
-                                        console.log('Error: ' + errorInsert);
-                                        sessionClose(reData);
-                                    }
                                 })
-                            })
-                            .catch (err => {
-                                console.log(err.message);
-                            })
                         }
                     }
                 }
@@ -452,7 +463,7 @@ let
         //console.log(researchCodes);
 
     },
-    sessionClose = function (reData){
+    sessionClose = function (reData) {
         let sessionEndDate = reData.session_date;
         sessionEndDate.setSeconds(sessionEndDate.getSeconds() + 1);
         // Удаляем секретные вопросы текущей сессии
@@ -461,35 +472,37 @@ let
         dbClient.query(`
             UPDATE researches_sessions
             SET date_finish = $1
-            WHERE id = $2`, [sessionEndDate,reData.session_id]
+            WHERE id = $2`, [sessionEndDate, reData.session_id]
         )
-        .then(res => {
-            dbQueryCounter++;
-            if (dbQueryCounter >= testXmls.length){
-                console.log('=========  RESULT  ========');
-                console.log('ALL_success: ' + allQuerySuccess);
-                console.log('ALL_error: ' + allQueryErrors);
-                console.log('ОБРАБОТАНЫ КОДОВЫЕ СЛОВА:');
-                console.log(researchCodes);
-                // Освобождаем пул соединений от нашего клиента
-                dbClient.release();
-            }
-        })
-        .catch(err => {
-            console.log(err.message);
-            dbQueryCounter++;
-            if (dbQueryCounter >= testXmls.length) {
-                console.log('=========  RESULT  ========');
-                console.log('ALL_success: ' + allQuerySuccess);
-                console.log('ALL_error: ' + allQueryErrors);
-                console.log('ОБРАБОТАНЫ КОДОВЫЕ СЛОВА:');
-                console.log(researchCodes);
-                // Освобождаем пул соединений от нашего клиента
-                dbClient.release();
-            }
-        })
+            .then(res => {
+                dbQueryCounter++;
+                if (dbQueryCounter >= testXmls.length) {
+                    console.log('=========  RESULT  ========');
+                    console.log('ALL_success: ' + allQuerySuccess);
+                    console.log('ALL_error: ' + allQueryErrors);
+                    console.log('ВОПРОСОВ НЕ НАЙДЕНО: ' + allQuestionsNotFound);
+                    console.log('ОБРАБОТАНЫ КОДОВЫЕ СЛОВА:');
+                    console.log(researchCodes);
+                    // Освобождаем пул соединений от нашего клиента
+                    dbClient.release();
+                }
+            })
+            .catch(err => {
+                console.log(err.message);
+                dbQueryCounter++;
+                if (dbQueryCounter >= testXmls.length) {
+                    console.log('=========  RESULT  ========');
+                    console.log('ALL_success: ' + allQuerySuccess);
+                    console.log('ALL_error: ' + allQueryErrors);
+                    console.log('ВОПРОСОВ НЕ НАЙДЕНО: ' + allQuestionsNotFound);
+                    console.log('ОБРАБОТАНЫ КОДОВЫЕ СЛОВА:');
+                    console.log(researchCodes);
+                    // Освобождаем пул соединений от нашего клиента
+                    dbClient.release();
+                }
+            })
     }
-;
+    ;
 
 // Подключаемся к пулу клиентов PG
 db.pool.connect()
